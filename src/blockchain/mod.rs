@@ -5,18 +5,22 @@ use std::collections::HashMap;
 pub struct Blockchain {
     blocks: HashMap<H256, Block>,
     tip: H256,
+    lengths: HashMap<H256, u32>
 }
 
 impl Blockchain {
     /// Create a new blockchain, only containing the genesis block
     pub fn new() -> Self {
-        let genesis_block:Block = Block::new(H256::default()); // Create a genesis block (you can define it).
+        let genesis_block:Block = Block::new(H256::default());
         let genesis_hash = genesis_block.hash();
         let mut blocks = HashMap::new();
-        blocks.insert(genesis_hash, genesis_block.clone()); // Insert the genesis block into the HashMap.
+        let mut lengths = HashMap::new();
+        blocks.insert(genesis_hash, genesis_block.clone());
+        lengths.insert(genesis_hash, 0);
         Self {
             blocks,
-            tip: genesis_hash, // Set the tip to the hash of the genesis block.
+            tip: genesis_hash,
+            lengths,
         }
     }
 
@@ -24,9 +28,9 @@ impl Blockchain {
     pub fn insert(&mut self, block: &Block) {
         let block_hash = block.hash();
         let cloned_block = block.clone();
-        self.blocks.insert(block_hash, cloned_block); // Insert the block into the HashMap.
-        // Update the tip if the inserted block's chain is longer.
-        if block.get_parent() == self.tip {
+        self.blocks.insert(block_hash, cloned_block);
+        self.lengths.insert(block_hash, self.lengths.get(&block.get_parent()).unwrap_or(&0) + 1);
+        if self.lengths.get(&block_hash) > self.lengths.get(&self.tip) {
             self.tip = block_hash;
         }
     }
@@ -42,9 +46,9 @@ impl Blockchain {
         let mut longest_chain = Vec::new();
         while let Some(block) = self.blocks.get(&current_hash) {
             longest_chain.push(current_hash);
-            current_hash = block.get_parent(); // Follow the parent hash to the previous block.
+            current_hash = block.get_parent();
         }
-        longest_chain.reverse(); // Reverse the order to start from the genesis block.
+        longest_chain.reverse();
         longest_chain
     }
 }
