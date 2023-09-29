@@ -4,25 +4,43 @@ use rand::Rng;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Transaction {
+    sender: String,
+    receiver: String,
+    value: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct SignedTransaction {
+    transaction: Transaction,
+    signature: Vec<u8>,
+    public_key: Vec<u8>,
 }
 
 /// Create digital signature of a transaction
 pub fn sign(t: &Transaction, key: &Ed25519KeyPair) -> Signature {
-    unimplemented!()
+    let bytes_to_sign: &[u8] = &bincode::serialize(t).unwrap();
+    key.sign(&bytes_to_sign)
 }
 
 /// Verify digital signature of a transaction, using public key instead of secret key
 pub fn verify(t: &Transaction, public_key: &[u8], signature: &[u8]) -> bool {
-    unimplemented!()
+    let message = bincode::serialize(t).unwrap(); // Serialize the transaction
+    let peer_public_key = ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public_key);
+    peer_public_key.verify(message.as_ref(), signature).is_ok()
 }
 
 #[cfg(any(test, test_utilities))]
 pub fn generate_random_transaction() -> Transaction {
-    unimplemented!()
+    let mut rng = rand::thread_rng();
+    let sender = format!("Sender{}", rng.gen::<u32>());
+    let receiver = format!("Receiver{}", rng.gen::<u32>());
+    let value = rng.gen::<i64>();
+
+    Transaction {
+        sender,
+        receiver,
+        value,
+    }
 }
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST
