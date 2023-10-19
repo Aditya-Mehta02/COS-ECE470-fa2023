@@ -1,17 +1,17 @@
 use crate::types::block::Block;
-use crate::types::hash::{H256, Hashable};
+use crate::types::hash::{Hashable, H256};
 use std::collections::HashMap;
 
 pub struct Blockchain {
     blocks: HashMap<H256, Block>,
     tip: H256,
-    lengths: HashMap<H256, u32>
+    lengths: HashMap<H256, u32>,
 }
 
 impl Blockchain {
     /// Create a new blockchain, only containing the genesis block
     pub fn new() -> Self {
-        let genesis_block:Block = Block::new(H256::default());
+        let genesis_block: Block = Block::new(H256::default());
         let genesis_hash = genesis_block.hash();
         let mut blocks = HashMap::new();
         let mut lengths = HashMap::new();
@@ -29,7 +29,10 @@ impl Blockchain {
         let block_hash = block.hash();
         let cloned_block = block.clone();
         self.blocks.insert(block_hash, cloned_block);
-        self.lengths.insert(block_hash, self.lengths.get(&block.get_parent()).unwrap_or(&0) + 1);
+        self.lengths.insert(
+            block_hash,
+            self.lengths.get(&block.get_parent()).unwrap_or(&0) + 1,
+        );
         if self.lengths.get(&block_hash) > self.lengths.get(&self.tip) {
             self.tip = block_hash;
         }
@@ -51,6 +54,16 @@ impl Blockchain {
         longest_chain.reverse();
         longest_chain
     }
+
+    /// Retrieve a block from the blockchain by its hash
+    pub fn get_block(&self, block_hash: &H256) -> Option<&Block> {
+        self.blocks.get(block_hash)
+    }
+
+    /// Check if the blockchain contains a block with the given hash
+    pub fn contains_block(&self, block_hash: &H256) -> bool {
+        self.blocks.contains_key(block_hash)
+    }
 }
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST
@@ -68,7 +81,6 @@ mod tests {
         let block = generate_random_block(&genesis_hash);
         blockchain.insert(&block);
         assert_eq!(blockchain.tip(), block.hash());
-
     }
 }
 

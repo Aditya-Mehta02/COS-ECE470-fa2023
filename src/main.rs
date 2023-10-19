@@ -4,16 +4,16 @@ extern crate hex_literal;
 
 pub mod api;
 pub mod blockchain;
-pub mod types;
+pub mod generator;
 pub mod miner;
 pub mod network;
-pub mod generator;
+pub mod types;
 
+use api::Server as ApiServer;
 use blockchain::Blockchain;
 use clap::clap_app;
-use smol::channel;
 use log::{error, info};
-use api::Server as ApiServer;
+use smol::channel;
 use std::net;
 use std::process;
 use std::sync::{Arc, Mutex};
@@ -74,16 +74,14 @@ fn main() {
             error!("Error parsing P2P workers: {}", e);
             process::exit(1);
         });
-    let worker_ctx = network::worker::Worker::new(
-        p2p_workers,
-        msg_rx,
-        &server,
-    );
+    let cloned_blockchain = Arc::clone(&blockchain);
+    let worker_ctx = network::worker::Worker::new(p2p_workers, msg_rx, &server, cloned_blockchain);
     worker_ctx.start();
 
     // start the miner
     let (miner_ctx, miner, finished_block_chan) = miner::new(&Arc::clone(&blockchain));
-    let miner_worker_ctx = miner::worker::Worker::new(&server, finished_block_chan, &Arc::clone(&blockchain));
+    let miner_worker_ctx =
+        miner::worker::Worker::new(&server, finished_block_chan, &Arc::clone(&blockchain));
     miner_ctx.start();
     miner_worker_ctx.start();
 
@@ -120,14 +118,8 @@ fn main() {
         });
     }
 
-
     // start the API server
-    ApiServer::start(
-        api_addr,
-        &miner,
-        &server,
-        &blockchain,
-    );
+    ApiServer::start(api_addr, &miner, &server, &blockchain);
 
     loop {
         std::thread::park();
