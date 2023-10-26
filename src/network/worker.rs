@@ -4,7 +4,8 @@ use super::server::Handle as ServerHandle;
 use crate::blockchain::Blockchain;
 use crate::types::block::Block;
 use crate::types::hash::{Hashable, H256};
-use std::sync::{Arc, Mutex}; // Import the Blockchain type
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex}; // Import the Blockchain type // Add for orphan block buffer
 
 use log::{debug, error, warn};
 
@@ -15,11 +16,13 @@ use super::peer::TestReceiver as PeerTestReceiver;
 #[cfg(any(test, test_utilities))]
 use super::server::TestReceiver as ServerTestReceiver;
 #[derive(Clone)]
+
 pub struct Worker {
     msg_chan: smol::channel::Receiver<(Vec<u8>, peer::Handle)>,
     num_worker: usize,
     server: ServerHandle,
     blockchain: Arc<Mutex<Blockchain>>, // Add the blockchain field
+    orphan_blocks: HashMap<H256, Block>,
 }
 
 impl Worker {
@@ -34,13 +37,14 @@ impl Worker {
             num_worker,
             server: server.clone(),
             blockchain: blockchain, // Assign the blockchain to the field
+            orphan_blocks: HashMap::new(),
         }
     }
 
     pub fn start(self) {
         let num_worker = self.num_worker;
         for i in 0..num_worker {
-            let cloned = self.clone();
+            let mut cloned = self.clone();
             thread::spawn(move || {
                 cloned.worker_loop();
                 warn!("Worker thread {} exited", i);
@@ -48,7 +52,70 @@ impl Worker {
         }
     }
 
-    fn worker_loop(&self) {
+    fn process_block(&mut self, block: &Block) -> bool {
+        // PoW check
+        if block.hash() > block.get_difficulty() {
+            warn!("Block's hash does not satisfy PoW requirement.");
+            return false;
+        }
+
+        let mut blockchain = self.blockchain.lock().unwrap();
+
+        // Check if the difficulty is as expected
+        let parent_difficulty = if !blockchain.contains_block(&block.get_parent()) {
+            block.get_difficulty()
+        } else {
+            match blockchain.get_block(&block.get_parent()) {
+                Some(parent_block) => parent_block.get_difficulty(),
+                None => return false,
+            }
+        };
+        if block.get_difficulty() != parent_difficulty {
+            warn!("Block's difficulty doesn't match with the parent's difficulty.");
+            return false;
+        }
+
+        // Check if the block's parent exists
+        if !blockchain.contains_block(&block.get_parent()) {
+            // Add to orphan buffer
+            self.orphan_blocks.insert(block.get_parent(), block.clone());
+            // Send GetBlocks message with this parent hash
+            println!(
+                "send GetBlocks msg with parent hash: {}, in process_block()",
+                block.get_parent()
+            );
+            self.server
+                .broadcast(Message::GetBlocks(vec![block.get_parent()]));
+            return false;
+        }
+
+        // If all checks passed, add block to the blockchain
+        println!(
+            "adding block: {} to blockchain, in process_block()",
+            block.hash()
+        );
+
+        blockchain.insert(&block);
+        true
+    }
+
+    fn process_orphan_blocks(&mut self, parent_hash: H256) {
+        let mut blockchain = self.blockchain.lock().unwrap();
+
+        // Get orphan blocks associated with the parent_hash
+        let mut orphan_block = self.orphan_blocks.remove(&parent_hash);
+
+        while let Some(block) = orphan_block {
+            // Add the block to the blockchain
+            println!("adding block: {} to blockchain", block.hash());
+            blockchain.insert(&block);
+            // Get the next orphan block
+            orphan_block = self.orphan_blocks.remove(&block.hash());
+        }
+    }
+
+    fn worker_loop(&mut self) {
+        print!("worker started");
         loop {
             let result = smol::block_on(self.msg_chan.recv());
             if let Err(e) = result {
@@ -67,6 +134,7 @@ impl Worker {
                     debug!("Pong: {}", nonce);
                 }
                 Message::NewBlockHashes(hashes) => {
+                    println!("receiving NewBlockHashes msg");
                     let blockchain = self.blockchain.lock().unwrap();
                     let unknown_hashes: Vec<H256> = hashes
                         .into_iter()
@@ -77,6 +145,7 @@ impl Worker {
                     }
                 }
                 Message::GetBlocks(hashes) => {
+                    println!("receiving GetBlocks msg");
                     let blockchain = self.blockchain.lock().unwrap();
                     let blocks: Vec<Block> = hashes
                         .iter()
@@ -87,15 +156,19 @@ impl Worker {
                     }
                 }
                 Message::Blocks(blocks) => {
-                    let mut blockchain = self.blockchain.lock().unwrap();
+                    println!("receiving Blocks msg");
                     let mut new_hashes = Vec::new();
                     for block in blocks {
-                        if !blockchain.contains_block(&block.hash()) {
-                            blockchain.insert(&block);
-                            new_hashes.push(block.hash());
+                        println!("{}", block.hash());
+                        if !self.process_block(&block) {
+                            continue;
                         }
+                        println!("adding new chain");
+                        new_hashes.push(block.hash());
+                        self.process_orphan_blocks(block.hash());
                     }
                     if !new_hashes.is_empty() {
+                        println!("broadcasting NewBlockHashes");
                         self.server.broadcast(Message::NewBlockHashes(new_hashes));
                     }
                 }

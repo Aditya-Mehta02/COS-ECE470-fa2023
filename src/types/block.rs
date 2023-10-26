@@ -1,7 +1,8 @@
-use serde::{Serialize, Deserialize};
-use crate::types::hash::{H256, Hashable};
-use crate::types::transaction::{SignedTransaction};
+use crate::types::hash::{Hashable, H256};
+use crate::types::transaction::SignedTransaction;
+use hex_literal::hex;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -12,9 +13,7 @@ pub struct Content {
 impl Content {
     pub fn new() -> Self {
         let mut transactions = Vec::new();
-        Content {
-            transactions
-        }
+        Content { transactions }
     }
 }
 
@@ -29,15 +28,37 @@ pub struct Header {
 
 impl Header {
     pub fn new(parent: H256, nonce: u32) -> Self {
-        let mut difficulty = [255u8; 32].into();
-        let mut timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+        let mut difficulty =
+            hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
+        let mut timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
         let mut merkle_root = H256::from([0; 32]);
         Header {
             parent: parent,
             nonce: nonce,
             difficulty,
             timestamp,
-            merkle_root
+            merkle_root,
+        }
+    }
+
+    pub fn get_genesis_header() -> Self {
+        let parent = H256::from([0; 32]); // Genesis block has no parent
+        let nonce = 0u32; // An arbitrary fixed nonce for genesis
+        let difficulty =
+            hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
+        // Fixed timestamp for genesis block, for example, the UNIX timestamp of a specific memorable date
+        let timestamp = 1615523200000; // This is a sample timestamp for 2021-03-12 00:00:00
+        let merkle_root = H256::from([0; 32]); // Genesis block's merkle root could be all zeros
+
+        Header {
+            parent,
+            nonce,
+            difficulty,
+            timestamp,
+            merkle_root,
         }
     }
 }
@@ -62,19 +83,28 @@ impl Hashable for Block {
 }
 
 impl Block {
+    pub fn get_genesis_block() -> Self {
+        let genesis_parent: H256 =
+            hex!("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
+        let genesis_nonce = 0u32; // or some predetermined value
+        let genesis_header = Header::get_genesis_header();
+        let genesis_content = Content::new();
+        Block {
+            header: genesis_header,
+            content: genesis_content,
+        }
+    }
+
     pub fn new(parent: H256) -> Self {
         let mut rng = rand::thread_rng();
         let mut nonce = rng.gen::<u32>();
         let mut header = Header::new(parent, nonce);
         let mut content = Content::new();
-        Block {
-            header,
-            content,
-        }
+        Block { header, content }
     }
 
-     // Setter method for changing the nonce
-     pub fn set_nonce(&mut self, new_nonce: u32) {
+    // Setter method for changing the nonce
+    pub fn set_nonce(&mut self, new_nonce: u32) {
         self.header.nonce = new_nonce;
     }
 

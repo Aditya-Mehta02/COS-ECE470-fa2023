@@ -1,5 +1,6 @@
 use crate::types::block::Block;
 use crate::types::hash::{Hashable, H256};
+use hex_literal::hex;
 use std::collections::HashMap;
 
 pub struct Blockchain {
@@ -11,8 +12,9 @@ pub struct Blockchain {
 impl Blockchain {
     /// Create a new blockchain, only containing the genesis block
     pub fn new() -> Self {
-        let genesis_block: Block = Block::new(H256::default());
+        let genesis_block: Block = Block::get_genesis_block();
         let genesis_hash = genesis_block.hash();
+        println!("genesis_hash: {}", genesis_hash);
         let mut blocks = HashMap::new();
         let mut lengths = HashMap::new();
         blocks.insert(genesis_hash, genesis_block.clone());

@@ -7,14 +7,14 @@ use std::time;
 
 use std::thread;
 
-use crate::types::block::Block;
 use crate::blockchain::Blockchain; // Import the Blockchain type
+use crate::types::block::Block;
+use crate::types::hash::Hashable;
 use std::sync::{Arc, Mutex};
-use crate::types::hash::{Hashable};
 
 enum ControlSignal {
     Start(u64), // the number controls the lambda of interval between block generation
-    Update, // update the block in mining, it may due to new blockchain tip or new transaction
+    Update,     // update the block in mining, it may due to new blockchain tip or new transaction
     Exit,
 }
 
@@ -42,7 +42,7 @@ pub fn new(blockchain: &Arc<Mutex<Blockchain>>) -> (Context, Handle, Receiver<Bl
     let (signal_chan_sender, signal_chan_receiver) = unbounded();
     let (finished_block_sender, finished_block_receiver) = unbounded();
 
-    let ctx = Context {
+    let ctx: Context = Context {
         control_chan: signal_chan_receiver,
         operating_state: OperatingState::Paused,
         finished_block_chan: finished_block_sender,
@@ -56,7 +56,7 @@ pub fn new(blockchain: &Arc<Mutex<Blockchain>>) -> (Context, Handle, Receiver<Bl
     (ctx, handle, finished_block_receiver)
 }
 
-#[cfg(any(test,test_utilities))]
+#[cfg(any(test, test_utilities))]
 fn test_new() -> (Context, Handle, Receiver<Block>) {
     let blockchain = Arc::new(Mutex::new(Blockchain::new())); // Create a blockchain for testing
     new(&blockchain)
@@ -91,6 +91,7 @@ impl Context {
 
     fn miner_loop(&mut self) {
         // main mining loop
+        println!("starting miner");
         loop {
             // check and react to control signals
             match self.operating_state {
@@ -133,7 +134,6 @@ impl Context {
                     Err(TryRecvError::Empty) => {}
                     Err(TryRecvError::Disconnected) => panic!("Miner control channel detached"),
                 },
-                
             }
             if let OperatingState::ShutDown = self.operating_state {
                 return;
@@ -141,10 +141,17 @@ impl Context {
 
             // TODO for student: actual mining, create a block
             // TODO for student: if block mining finished, you can have something like: self.finished_block_chan.send(block.clone()).expect("Send finished block error");
-            
-            let parent = {self.blockchain.lock().unwrap().tip()};
-            let mut block = Block::new(parent);  
-            println!("{:?}", self.blockchain.lock().unwrap().all_blocks_in_longest_chain().len());
+
+            let parent = { self.blockchain.lock().unwrap().tip() };
+            let mut block = Block::new(parent);
+            println!(
+                "{:?}",
+                self.blockchain
+                    .lock()
+                    .unwrap()
+                    .all_blocks_in_longest_chain()
+                    .len()
+            );
 
             let mut nonce = 0;
             loop {
@@ -158,8 +165,13 @@ impl Context {
                 // Check if the hash meets the proof-of-work condition
                 if hash <= block.get_difficulty() {
                     // Mining successful, send the mined block
-                    self.finished_block_chan.send(block.clone()).expect("Send finished block error");
-                    {self.blockchain.lock().unwrap().insert(&block.clone());}
+                    self.finished_block_chan
+                        .send(block.clone())
+                        .expect("Send finished block error");
+                    {
+                        println!("found new block");
+                        self.blockchain.lock().unwrap().insert(&block.clone());
+                    }
                     break; // Exit the mining loop
                 }
                 nonce += 1; // Increment nonce for the next iteration
@@ -180,8 +192,8 @@ impl Context {
 
 #[cfg(test)]
 mod test {
-    use ntest::timeout;
     use crate::types::hash::Hashable;
+    use ntest::timeout;
 
     #[test]
     #[timeout(60000)]
