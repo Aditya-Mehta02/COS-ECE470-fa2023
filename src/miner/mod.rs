@@ -10,8 +10,8 @@ use std::thread;
 use crate::blockchain::Blockchain; // Import the Blockchain type
 use crate::types::block::Block;
 use crate::types::hash::Hashable;
+use crate::types::mempool::Mempool;
 use std::sync::{Arc, Mutex};
-
 enum ControlSignal {
     Start(u64), // the number controls the lambda of interval between block generation
     Update,     // update the block in mining, it may due to new blockchain tip or new transaction
@@ -30,6 +30,7 @@ pub struct Context {
     operating_state: OperatingState,
     finished_block_chan: Sender<Block>,
     blockchain: Arc<Mutex<Blockchain>>, // Add the blockchain field
+    mempool: Arc<Mutex<Mempool>>,       // Add the mempool field
 }
 
 #[derive(Clone)]
@@ -38,7 +39,10 @@ pub struct Handle {
     control_chan: Sender<ControlSignal>,
 }
 
-pub fn new(blockchain: &Arc<Mutex<Blockchain>>) -> (Context, Handle, Receiver<Block>) {
+pub fn new(
+    blockchain: &Arc<Mutex<Blockchain>>,
+    mempool: &Arc<Mutex<Mempool>>,
+) -> (Context, Handle, Receiver<Block>) {
     let (signal_chan_sender, signal_chan_receiver) = unbounded();
     let (finished_block_sender, finished_block_receiver) = unbounded();
 
@@ -47,6 +51,7 @@ pub fn new(blockchain: &Arc<Mutex<Blockchain>>) -> (Context, Handle, Receiver<Bl
         operating_state: OperatingState::Paused,
         finished_block_chan: finished_block_sender,
         blockchain: Arc::clone(blockchain), // Clone the blockchain Arc
+        mempool: Arc::clone(mempool),       // Clone the mempool Arc
     };
 
     let handle = Handle {
@@ -58,8 +63,11 @@ pub fn new(blockchain: &Arc<Mutex<Blockchain>>) -> (Context, Handle, Receiver<Bl
 
 #[cfg(any(test, test_utilities))]
 fn test_new() -> (Context, Handle, Receiver<Block>) {
+    use crate::types::mempool;
+
     let blockchain = Arc::new(Mutex::new(Blockchain::new())); // Create a blockchain for testing
-    new(&blockchain)
+    let mempool = Arc::new(Mutex::new(Mempool::new())); // Create a blockchain for testing
+    new(&blockchain, &mempool)
 }
 
 impl Handle {
@@ -144,6 +152,14 @@ impl Context {
 
             let parent = { self.blockchain.lock().unwrap().tip() };
             let mut block = Block::new(parent);
+            // Fetch transactions from the mempool
+            {
+                let mempool = self.mempool.lock().unwrap();
+
+                block.get_content_mut().add_transactions(
+                    mempool.get_transactions_for_block(20, &self.blockchain.lock().unwrap()),
+                ); // Assume Block has a method to add a transaction
+            }
             println!(
                 "{:?}",
                 self.blockchain

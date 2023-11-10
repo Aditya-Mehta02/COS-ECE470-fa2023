@@ -15,6 +15,9 @@ impl Content {
         let mut transactions = Vec::new();
         Content { transactions }
     }
+    pub fn add_transactions(&mut self, transactions: Vec<SignedTransaction>) {
+        self.transactions.extend(transactions);
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -29,7 +32,7 @@ pub struct Header {
 impl Header {
     pub fn new(parent: H256, nonce: u32) -> Self {
         let mut difficulty =
-            hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
+            hex!("000010ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
         let mut timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -48,7 +51,7 @@ impl Header {
         let parent = H256::from([0; 32]); // Genesis block has no parent
         let nonce = 0u32; // An arbitrary fixed nonce for genesis
         let difficulty =
-            hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
+            hex!("000010ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
         // Fixed timestamp for genesis block, for example, the UNIX timestamp of a specific memorable date
         let timestamp = 1615523200000; // This is a sample timestamp for 2021-03-12 00:00:00
         let merkle_root = H256::from([0; 32]); // Genesis block's merkle root could be all zeros
@@ -114,6 +117,20 @@ impl Block {
 
     pub fn get_difficulty(&self) -> H256 {
         self.header.difficulty
+    }
+
+    // Method to get a reference to the transactions within the block
+    pub fn get_transactions(&self) -> &Vec<SignedTransaction> {
+        &self.content.transactions
+    }
+
+    // Optionally, if you need to modify the transactions, add this method
+    pub fn get_transactions_mut(&mut self) -> &mut Vec<SignedTransaction> {
+        &mut self.content.transactions
+    }
+
+    pub fn get_content_mut(&mut self) -> &mut Content {
+        &mut self.content
     }
 }
 

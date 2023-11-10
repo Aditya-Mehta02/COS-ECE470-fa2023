@@ -66,6 +66,19 @@ impl Blockchain {
     pub fn contains_block(&self, block_hash: &H256) -> bool {
         self.blocks.contains_key(block_hash)
     }
+
+    /// Check if the blockchain contains a transaction with the given hash
+    pub fn contains_transaction(&self, tx_hash: &H256) -> bool {
+        // Iterate over all blocks and check each transaction
+        for block in self.blocks.values() {
+            for transaction in block.get_transactions() {
+                if &transaction.hash() == tx_hash {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST

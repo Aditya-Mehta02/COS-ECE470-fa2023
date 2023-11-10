@@ -19,6 +19,7 @@ use std::process;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
+use types::mempool::Mempool;
 
 fn main() {
     // parse command line arguments
@@ -74,12 +75,24 @@ fn main() {
             error!("Error parsing P2P workers: {}", e);
             process::exit(1);
         });
+
+    // Initialize the mempool
+    let mempool = Mempool::new();
+    let mempool = Arc::new(Mutex::new(mempool));
     let cloned_blockchain = Arc::clone(&blockchain);
-    let worker_ctx = network::worker::Worker::new(p2p_workers, msg_rx, &server, cloned_blockchain);
+    let cloned_mempool = Arc::clone(&mempool); // Clone the Arc to pass to the worker
+    let worker_ctx = network::worker::Worker::new(
+        p2p_workers,
+        msg_rx,
+        &server,
+        cloned_blockchain,
+        cloned_mempool,
+    );
     worker_ctx.start();
 
     // start the miner
-    let (miner_ctx, miner, finished_block_chan) = miner::new(&Arc::clone(&blockchain));
+    let (miner_ctx, miner, finished_block_chan) =
+        miner::new(&Arc::clone(&blockchain), &Arc::clone(&mempool));
     let miner_worker_ctx = miner::worker::Worker::new(
         &server,
         finished_block_chan,
@@ -123,7 +136,7 @@ fn main() {
     }
 
     // start the API server
-    ApiServer::start(api_addr, &miner, &server, &blockchain);
+    ApiServer::start(api_addr, &miner, &server, &blockchain, &mempool);
 
     loop {
         std::thread::park();

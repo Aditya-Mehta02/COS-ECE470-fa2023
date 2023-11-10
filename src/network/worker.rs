@@ -4,8 +4,10 @@ use super::server::Handle as ServerHandle;
 use crate::blockchain::Blockchain;
 use crate::types::block::Block;
 use crate::types::hash::{Hashable, H256};
+use crate::types::mempool::{self, Mempool};
+use crate::types::transaction::{SignedTransaction, Transaction};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex}; // Import the Blockchain type // Add for orphan block buffer
+use std::sync::{Arc, Mutex}; // Import the Blockchain type // Add for orphan block buffer // Assuming you have a Mempool struct defined
 
 use log::{debug, error, warn};
 
@@ -23,6 +25,7 @@ pub struct Worker {
     server: ServerHandle,
     blockchain: Arc<Mutex<Blockchain>>, // Add the blockchain field
     orphan_blocks: HashMap<H256, Block>,
+    mempool: Arc<Mutex<Mempool>>,
 }
 
 impl Worker {
@@ -31,6 +34,7 @@ impl Worker {
         msg_src: smol::channel::Receiver<(Vec<u8>, peer::Handle)>,
         server: &ServerHandle,
         blockchain: Arc<Mutex<Blockchain>>, // Add blockchain as an argument
+        mempool: Arc<Mutex<Mempool>>,       // Add mempool as an argument
     ) -> Self {
         Self {
             msg_chan: msg_src,
@@ -38,6 +42,7 @@ impl Worker {
             server: server.clone(),
             blockchain: blockchain, // Assign the blockchain to the field
             orphan_blocks: HashMap::new(),
+            mempool: mempool,
         }
     }
 
@@ -172,6 +177,49 @@ impl Worker {
                         self.server.broadcast(Message::NewBlockHashes(new_hashes));
                     }
                 }
+
+                Message::NewTransactionHashes(tx_hashes) => {
+                    println!("Receiving NewTransactionHashes msg");
+                    let blockchain = self.blockchain.lock().unwrap();
+                    let mempool = self.mempool.lock().unwrap();
+
+                    let unknown_hashes: Vec<H256> = tx_hashes
+                        .into_iter()
+                        .filter(|hash| {
+                            !blockchain.contains_transaction(hash)
+                                && !mempool.contains_transaction(hash)
+                        })
+                        .collect();
+
+                    if !unknown_hashes.is_empty() {
+                        peer.write(Message::GetTransactions(unknown_hashes));
+                    }
+                }
+                Message::GetTransactions(tx_hashes) => {
+                    println!("Receiving GetTransactions msg");
+                    let mempool = self.mempool.lock().unwrap();
+
+                    let transactions: Vec<SignedTransaction> = tx_hashes
+                        .iter()
+                        .filter_map(|hash| mempool.get_transaction(hash))
+                        .cloned()
+                        .collect();
+
+                    if !transactions.is_empty() {
+                        peer.write(Message::Transactions(transactions));
+                    }
+                }
+                Message::Transactions(transactions) => {
+                    println!("Receiving Transactions msg");
+                    let mut mempool = self.mempool.lock().unwrap();
+
+                    for tx in transactions {
+                        if !mempool.contains_transaction(&tx.hash()) && mempool.is_valid(&tx) {
+                            // `verify_signature` is a new method to be implemented in SignedTransaction
+                            mempool.add_transaction(tx);
+                        }
+                    }
+                }
                 _ => unimplemented!(),
             }
         }
@@ -204,9 +252,18 @@ impl TestMsgSender {
 fn generate_test_worker_and_start() -> (TestMsgSender, ServerTestReceiver, Vec<H256>) {
     let (server, server_receiver) = ServerHandle::new_for_test();
     let (test_msg_sender, msg_chan) = TestMsgSender::new();
+    // Initialize the mempool
+    let mempool = Mempool::new();
+    let shared_mempool = Arc::new(Mutex::new(mempool));
     let blockchain = Blockchain::new();
     let block_hashes = blockchain.all_blocks_in_longest_chain(); // Assuming this method exists based on description.
-    let worker = Worker::new(1, msg_chan, &server, Arc::new(Mutex::new(blockchain)));
+    let worker = Worker::new(
+        1,
+        msg_chan,
+        &server,
+        Arc::new(Mutex::new(blockchain)),
+        Arc::clone(&shared_mempool),
+    );
     worker.start();
     (test_msg_sender, server_receiver, block_hashes)
 }

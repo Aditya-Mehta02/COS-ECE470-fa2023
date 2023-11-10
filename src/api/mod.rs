@@ -1,13 +1,16 @@
-use serde::Serialize;
 use crate::blockchain::Blockchain;
+use crate::generator::generator::TransactionGenerator;
 use crate::miner::Handle as MinerHandle;
-use crate::network::server::Handle as NetworkServerHandle;
 use crate::network::message::Message;
+use crate::network::server::Handle as NetworkServerHandle;
+use crate::types::hash::Hashable;
+use crate::types::mempool::{self, Mempool};
+use serde::Serialize;
 
 use log::info;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::{clone, thread};
 use tiny_http::Header;
 use tiny_http::Response;
 use tiny_http::Server as HTTPServer;
@@ -18,6 +21,7 @@ pub struct Server {
     miner: MinerHandle,
     network: NetworkServerHandle,
     blockchain: Arc<Mutex<Blockchain>>,
+    mempool: Arc<Mutex<Mempool>>,
 }
 
 #[derive(Serialize)]
@@ -53,6 +57,7 @@ impl Server {
         miner: &MinerHandle,
         network: &NetworkServerHandle,
         blockchain: &Arc<Mutex<Blockchain>>,
+        mempool: &Arc<Mutex<Mempool>>,
     ) {
         let handle = HTTPServer::http(&addr).unwrap();
         let server = Self {
@@ -60,12 +65,14 @@ impl Server {
             miner: miner.clone(),
             network: network.clone(),
             blockchain: Arc::clone(blockchain),
+            mempool: Arc::clone(mempool),
         };
         thread::spawn(move || {
             for req in server.handle.incoming_requests() {
                 let miner = server.miner.clone();
                 let network = server.network.clone();
                 let blockchain = Arc::clone(&server.blockchain);
+                let mempool = Arc::clone(&server.mempool);
                 thread::spawn(move || {
                     // a valid url requires a base
                     let base_url = Url::parse(&format!("http://{}/", &addr)).unwrap();
@@ -102,8 +109,31 @@ impl Server {
                             respond_result!(req, true, "ok");
                         }
                         "/tx-generator/start" => {
+                            let params = url.query_pairs();
+                            let params: HashMap<_, _> = params.into_owned().collect();
+                            let theta = match params.get("theta") {
+                                Some(v) => v,
+                                None => {
+                                    respond_result!(req, false, "missing theta");
+                                    return;
+                                }
+                            };
+                            let theta = match theta.parse::<u64>() {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    respond_result!(
+                                        req,
+                                        false,
+                                        format!("error parsing theta: {}", e)
+                                    );
+                                    return;
+                                }
+                            };
+                            let tx_generator = TransactionGenerator::new();
+                            tx_generator.start(theta, network, mempool);
+                            respond_result!(req, true, "Transaction generator started");
                             // unimplemented!()
-                            respond_result!(req, false, "unimplemented!");
+                            // respond_result!(req, false, "unimplemented!");
                         }
                         "/network/ping" => {
                             network.broadcast(Message::Ping(String::from("Test ping")));
@@ -112,16 +142,50 @@ impl Server {
                         "/blockchain/longest-chain" => {
                             let blockchain = blockchain.lock().unwrap();
                             let v = blockchain.all_blocks_in_longest_chain();
-                            let v_string: Vec<String> = v.into_iter().map(|h|h.to_string()).collect();
+                            let v_string: Vec<String> =
+                                v.into_iter().map(|h| h.to_string()).collect();
                             respond_json!(req, v_string);
                         }
                         "/blockchain/longest-chain-tx" => {
+                            let blockchain = blockchain.lock().unwrap();
+                            let longest_chain_hashes = blockchain.all_blocks_in_longest_chain();
+                            let mut tx_hashes: Vec<Vec<String>> = Vec::new();
+
+                            for block_hash in longest_chain_hashes {
+                                if let Some(block) = blockchain.get_block(&block_hash) {
+                                    let block_tx_hashes: Vec<String> = block
+                                        .get_transactions()
+                                        .iter()
+                                        .map(|tx| format!("{}", tx.hash()))
+                                        .collect();
+                                    tx_hashes.push(block_tx_hashes);
+                                }
+                            }
+
+                            // Serialize the transaction hashes to JSON
+                            // let tx_hashes_json = serde_json::to_string(&tx_hashes).unwrap();
+                            respond_json!(req, tx_hashes);
+
                             // unimplemented!()
-                            respond_result!(req, false, "unimplemented!");
+                            // respond_result!(req, false, "unimplemented!");
                         }
                         "/blockchain/longest-chain-tx-count" => {
+                            let blockchain = blockchain.lock().unwrap();
+                            let longest_chain_hashes = blockchain.all_blocks_in_longest_chain();
+                            let tx_count: usize = longest_chain_hashes
+                                .iter()
+                                .map(|block_hash| {
+                                    blockchain
+                                        .get_block(block_hash)
+                                        .map(|block| block.get_transactions().len())
+                                        .unwrap_or(0)
+                                })
+                                .sum();
+
+                            respond_json!(req, tx_count);
+
                             // unimplemented!()
-                            respond_result!(req, false, "unimplemented!");
+                            // respond_result!(req, false, "unimplemented!");
                         }
                         _ => {
                             let content_type =
