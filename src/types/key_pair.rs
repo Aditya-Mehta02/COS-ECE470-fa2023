@@ -1,5 +1,5 @@
 use ring::rand;
-use ring::signature::Ed25519KeyPair;
+use ring::signature::{Ed25519KeyPair, KeyPair};
 
 /// Generate a random key pair.
 pub fn random() -> Ed25519KeyPair {

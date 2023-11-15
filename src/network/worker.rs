@@ -150,7 +150,7 @@ impl Worker {
                     }
                 }
                 Message::GetBlocks(hashes) => {
-                    println!("receiving GetBlocks msg");
+                    // println!("receiving GetBlocks msg");
                     let blockchain = self.blockchain.lock().unwrap();
                     let blocks: Vec<Block> = hashes
                         .iter()
@@ -161,25 +161,25 @@ impl Worker {
                     }
                 }
                 Message::Blocks(blocks) => {
-                    println!("receiving Blocks msg");
+                    // println!("receiving Blocks msg");
                     let mut new_hashes = Vec::new();
                     for block in blocks {
                         println!("{}", block.hash());
                         if !self.process_block(&block) {
                             continue;
                         }
-                        println!("adding new chain");
+                        // println!("adding new chain");
                         new_hashes.push(block.hash());
                         self.process_orphan_blocks(block.hash());
                     }
                     if !new_hashes.is_empty() {
-                        println!("broadcasting NewBlockHashes");
+                        // println!("broadcasting NewBlockHashes");
                         self.server.broadcast(Message::NewBlockHashes(new_hashes));
                     }
                 }
 
                 Message::NewTransactionHashes(tx_hashes) => {
-                    println!("Receiving NewTransactionHashes msg");
+                    // println!("Receiving NewTransactionHashes msg");
                     let blockchain = self.blockchain.lock().unwrap();
                     let mempool = self.mempool.lock().unwrap();
 
@@ -196,7 +196,7 @@ impl Worker {
                     }
                 }
                 Message::GetTransactions(tx_hashes) => {
-                    println!("Receiving GetTransactions msg");
+                    // println!("Receiving GetTransactions msg");
                     let mempool = self.mempool.lock().unwrap();
 
                     let transactions: Vec<SignedTransaction> = tx_hashes
@@ -210,12 +210,19 @@ impl Worker {
                     }
                 }
                 Message::Transactions(transactions) => {
-                    println!("Receiving Transactions msg");
+                    // println!("Receiving Transactions msg");
                     let mut mempool = self.mempool.lock().unwrap();
 
                     for tx in transactions {
-                        if !mempool.contains_transaction(&tx.hash()) && mempool.is_valid(&tx) {
-                            // `verify_signature` is a new method to be implemented in SignedTransaction
+                        if !mempool.contains_transaction(&tx.hash())
+                            && mempool.is_valid(&tx)
+                            && self
+                                .blockchain
+                                .lock()
+                                .unwrap()
+                                .get_state()
+                                .is_transaction_valid(&tx)
+                        {
                             mempool.add_transaction(tx);
                         }
                     }

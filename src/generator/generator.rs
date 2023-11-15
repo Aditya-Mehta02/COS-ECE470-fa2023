@@ -34,8 +34,18 @@ impl TransactionGenerator {
         network: NetworkServerHandle,
         mempool: Arc<Mutex<Mempool>>,
     ) {
+        let mut nonce: u64 = 0;
         loop {
-            let signed_transaction = SignedTransaction::get_random_signed_transaction();
+            println!("attempt to generate transaction from ICO");
+            let signed_transaction =
+                SignedTransaction::get_random_signed_transaction_from_ico(nonce);
+            println!("generated random transaction from ICO");
+            println!(
+                "Signature Verify: {}",
+                signed_transaction.verify_signed_transaction()
+            );
+            println!("{}", signed_transaction.get_sender());
+            println!("nonce: {}", signed_transaction.get_nonce());
             // Lock the mutex to get access to the mempool.
             let mut mempool_guard = mempool.lock().unwrap();
             // Now you can add the transaction to the mempool.
@@ -50,6 +60,7 @@ impl TransactionGenerator {
                 let interval = time::Duration::from_millis(10 * theta);
                 thread::sleep(interval);
             }
+            nonce = nonce + 1;
         }
     }
 }

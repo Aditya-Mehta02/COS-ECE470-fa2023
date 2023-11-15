@@ -13,6 +13,7 @@ use api::Server as ApiServer;
 use blockchain::Blockchain;
 use clap::clap_app;
 use log::{error, info};
+use ring::signature;
 use smol::channel;
 use std::net;
 use std::process;
@@ -21,7 +22,30 @@ use std::thread;
 use std::time;
 use types::mempool::Mempool;
 
+extern crate ring;
+use ring::signature::{Ed25519KeyPair, KeyPair};
+use std::fs::File;
+use std::io::Write;
+extern crate base64;
+
+fn generate_and_save_keys() -> Result<(), std::io::Error> {
+    let rng = ring::rand::SystemRandom::new();
+
+    // Generate a key pair
+    let pkcs8_bytes = signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+    let pkcs8_bytes: &[u8] = pkcs8_bytes.as_ref();
+
+    // Save private key to file
+    let mut file = File::create("key_pair.pem")?;
+    file.write_all(pkcs8_bytes)?;
+
+    Ok(())
+}
+
 fn main() {
+    if let Err(e) = generate_and_save_keys() {
+        println!("Failed to generate keys: {}", e);
+    }
     // parse command line arguments
     let matches = clap_app!(Bitcoin =>
      (version: "0.1")

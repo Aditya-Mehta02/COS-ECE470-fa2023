@@ -17,9 +17,24 @@ impl Transaction {
     pub fn generate_random_transaction() -> Self {
         let mut rng = rand::thread_rng();
         let sender = format!("Sender{}", rng.gen::<u32>());
-        let receiver = format!("Receiver{}", rng.gen::<u32>());
+        let receiver: String = format!("Receiver{}", rng.gen::<u32>());
         let value = rng.gen::<i64>();
         let nonce = rng.gen::<u64>();
+
+        Transaction {
+            sender,
+            receiver,
+            value,
+            nonce,
+        }
+    }
+
+    pub fn generate_random_transaction_from_ico(nonce: u64, reciever_addr: String) -> Self {
+        let mut rng = rand::thread_rng();
+        let sender = "DIc8B6v4D6pHAaPfOIwLxzugi49T+ooEU9zKelCZyCg=".to_string(); // The ICO's address
+        let receiver = reciever_addr;
+        let value = rng.gen_range(1..=5); // Value between 1 and 5
+        let nonce = nonce;
 
         Transaction {
             sender,
@@ -66,6 +81,59 @@ impl SignedTransaction {
             signature,
             public_key: key_pair.public_key().as_ref().to_vec(),
         }
+    }
+
+    /// Generates a random signed transaction from the ICO
+    pub fn get_random_signed_transaction_from_ico(nonce: u64) -> Self {
+        // Generate a random key pair.
+        let receiver_keypair: Ed25519KeyPair = key_pair::random();
+        let reciever_addr = base64::encode(receiver_keypair.public_key());
+
+        // Generate a random transaction from the ICO
+        let random_transaction: Transaction =
+            Transaction::generate_random_transaction_from_ico(nonce, reciever_addr);
+
+        // Load the ICO's private key
+        let ico_private_key_bytes = include_bytes!("key_pair.pem"); // Load the ICO's private key file
+        let key_pair = Ed25519KeyPair::from_pkcs8(ico_private_key_bytes).unwrap();
+
+        // Sign the transaction with the ICO's private key
+        let signature = sign(&random_transaction, &key_pair);
+
+        // ICO's public key
+        let ico_public_key = key_pair.public_key();
+
+        // Create the signed transaction
+        SignedTransaction {
+            transaction: random_transaction,
+            signature,
+            public_key: ico_public_key.as_ref().to_vec(),
+        }
+    }
+
+    /// Verifies the digital signature of this signed transaction.
+    pub fn verify_signed_transaction(&self) -> bool {
+        verify(&self.transaction, &self.public_key, &self.signature)
+    }
+
+    /// Returns the sender of the transaction.
+    pub fn get_sender(&self) -> &String {
+        &self.transaction.sender
+    }
+
+    /// Returns the receiver of the transaction.
+    pub fn get_receiver(&self) -> &String {
+        &self.transaction.receiver
+    }
+
+    /// Returns the value of the transaction.
+    pub fn get_value(&self) -> i64 {
+        self.transaction.value
+    }
+
+    /// Returns the nonce of the transaction.
+    pub fn get_nonce(&self) -> u64 {
+        self.transaction.nonce
     }
 }
 

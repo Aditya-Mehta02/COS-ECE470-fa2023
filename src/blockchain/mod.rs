@@ -1,12 +1,15 @@
 use crate::types::block::Block;
 use crate::types::hash::{Hashable, H256};
+use crate::types::state::{self, State};
 use hex_literal::hex;
 use std::collections::HashMap;
+use std::thread::current;
 
 pub struct Blockchain {
     blocks: HashMap<H256, Block>,
     tip: H256,
     lengths: HashMap<H256, u32>,
+    state: State,
 }
 
 impl Blockchain {
@@ -23,7 +26,38 @@ impl Blockchain {
             blocks,
             tip: genesis_hash,
             lengths,
+            state: State::new(),
         }
+    }
+
+    pub fn get_state_up_to_block(&self, mut block_number: u32) -> Result<State, String> {
+        let mut state = State::new(); // Start with a new state
+        let mut current_hash = self.tip;
+        let mut current_block_number = self.lengths.get(&current_hash).copied().unwrap_or_default();
+        if block_number > current_block_number {
+            block_number = current_block_number;
+        }
+
+        while current_block_number >= block_number {
+            while current_block_number > 0 && current_block_number <= block_number {
+                if let Some(block) = self.blocks.get(&current_hash) {
+                    for transaction in block.get_transactions() {
+                        state.apply_transaction(transaction)?;
+                    }
+                    current_hash = block.get_parent();
+                    current_block_number =
+                        self.lengths.get(&current_hash).copied().unwrap_or_default();
+                } else {
+                    return Err("Block not found".to_string());
+                }
+            }
+            if current_block_number > 0 {
+                let block = self.blocks.get(&current_hash);
+                current_hash = block.unwrap().get_parent();
+                current_block_number = self.lengths.get(&current_hash).copied().unwrap_or_default();
+            }
+        }
+        Ok(state)
     }
 
     /// Insert a block into blockchain
@@ -37,6 +71,13 @@ impl Blockchain {
         );
         if self.lengths.get(&block_hash) > self.lengths.get(&self.tip) {
             self.tip = block_hash;
+        }
+        // Apply transactions to the state
+        for transaction in block.get_transactions() {
+            match self.state.apply_transaction(transaction) {
+                Ok(_) => (),
+                Err(e) => eprintln!("Failed to apply transaction: {}", e),
+            }
         }
     }
 
@@ -60,6 +101,11 @@ impl Blockchain {
     /// Retrieve a block from the blockchain by its hash
     pub fn get_block(&self, block_hash: &H256) -> Option<&Block> {
         self.blocks.get(block_hash)
+    }
+
+    /// Retrieve blockchain state
+    pub fn get_state(&self) -> &State {
+        &self.state
     }
 
     /// Check if the blockchain contains a block with the given hash

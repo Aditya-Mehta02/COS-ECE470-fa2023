@@ -5,6 +5,7 @@ use crate::network::message::Message;
 use crate::network::server::Handle as NetworkServerHandle;
 use crate::types::hash::Hashable;
 use crate::types::mempool::{self, Mempool};
+use crate::types::state::State;
 use serde::Serialize;
 
 use log::info;
@@ -186,6 +187,56 @@ impl Server {
 
                             // unimplemented!()
                             // respond_result!(req, false, "unimplemented!");
+                        }
+                        "/blockchain/state" => {
+                            let params = url.query_pairs();
+                            let params: HashMap<_, _> = params.into_owned().collect();
+                            let block_str = match params.get("block") {
+                                Some(v) => v,
+                                None => {
+                                    respond_result!(req, false, "missing block number");
+                                    return;
+                                }
+                            };
+                            let block_number = match block_str.parse::<u32>() {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    respond_result!(
+                                        req,
+                                        false,
+                                        format!("error parsing block number: {}", e)
+                                    );
+                                    return;
+                                }
+                            };
+                            let blockchain = blockchain.lock().unwrap();
+                            match blockchain.get_state_up_to_block(block_number) {
+                                Ok(state) => {
+                                    let mut accounts: Vec<(String, u64, u128)> = state
+                                        .get_accounts()
+                                        .iter()
+                                        .map(|(address, info)| {
+                                            (
+                                                address.to_string(),
+                                                info.get_nonce(),
+                                                info.get_balance(),
+                                            )
+                                        })
+                                        .collect();
+
+                                    accounts.sort_by(|a, b| a.0.cmp(&b.0));
+
+                                    let accounts_str: Vec<String> = accounts
+                                        .iter()
+                                        .map(|(address, nonce, balance)| {
+                                            format!("({}, {}, {})", address, nonce, balance)
+                                        })
+                                        .collect();
+
+                                    respond_json!(req, accounts_str);
+                                }
+                                Err(e) => respond_result!(req, false, e),
+                            }
                         }
                         _ => {
                             let content_type =
